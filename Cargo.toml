@@ -30,3 +30,6 @@ pretty_assertions = { version = "1.2.1" }
 test-case = { version = "2.2.2" }
 phf = { version = "0.11", features = ["macros"] }
 ctor = "0.2.0"
+
+[patch."https://github.com/starkware-libs/starknet-api"]
+starknet_api = { git = "https://github.com/dojoengine/starknet-api", rev = "07432d6acd1afc83d341a01ffd49c55ef06146cd" }
