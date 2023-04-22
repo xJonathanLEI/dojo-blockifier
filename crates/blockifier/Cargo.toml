@@ -11,6 +11,7 @@ testing = []
 [dependencies]
 cairo-felt.workspace = true
 cairo-vm.workspace = true
+cairo-lang-starknet.workspace = true
 derive_more.workspace = true
 indexmap.workspace = true
 itertools.workspace = true
