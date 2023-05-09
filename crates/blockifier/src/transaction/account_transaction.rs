@@ -132,11 +132,12 @@ impl AccountTransaction {
             }
             Self::Invoke(_) => {
                 vec![
-                    TransactionVersion(StarkFelt::from(0_u8)),
-                    TransactionVersion(StarkFelt::from(1_u8)),
+                    TransactionVersion(StarkFelt::from(0)),
+                    TransactionVersion(StarkFelt::from(1)),
+                    TransactionVersion(StarkFelt::from(2)),
                 ]
             }
-            _ => vec![TransactionVersion(StarkFelt::from(1_u8))],
+            _ => vec![TransactionVersion(StarkFelt::from(1))],
         };
         if allowed_versions.contains(&version) {
             Ok(())
