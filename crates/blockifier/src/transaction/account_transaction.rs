@@ -137,7 +137,7 @@ impl AccountTransaction {
                     TransactionVersion(StarkFelt::from(2)),
                 ]
             }
-            _ => vec![TransactionVersion(StarkFelt::from(1))],
+            _ => vec![TransactionVersion(StarkFelt::from(1_u8))],
         };
         if allowed_versions.contains(&version) {
             Ok(())
