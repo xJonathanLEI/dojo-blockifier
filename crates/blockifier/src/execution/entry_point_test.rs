@@ -493,8 +493,7 @@ fn test_cairo1_entry_point_segment_arena() {
         ..trivial_external_entry_point()
     };
 
-    let res = entry_point_call.execute_directly(&mut state);
-    assert!(res.is_ok());
+    entry_point_call.execute_directly(&mut state).unwrap();
 }
 
 #[test]
@@ -522,19 +521,22 @@ fn test_stack_trace() {
 Error at pc=0:19:
 Got an exception while executing a hint.
 Cairo traceback (most recent call last):
-Unknown location (pc=0:629)
-Unknown location (pc=0:612)
+Unknown location (pc=0:658)
+Unknown location (pc=0:641)
+
 Error in the called contract ({}):
 Error at pc=0:19:
 Got an exception while executing a hint.
 Cairo traceback (most recent call last):
-Unknown location (pc=0:629)
-Unknown location (pc=0:612)
+Unknown location (pc=0:658)
+Unknown location (pc=0:641)
+
 Error in the called contract ({}):
 Error at pc=0:58:
 An ASSERT_EQ instruction failed: 1 != 0.
 Cairo traceback (most recent call last):
-Unknown location (pc=0:62)",
+Unknown location (pc=0:62)
+",
         pad_address_to_64(TEST_CONTRACT_ADDRESS),
         pad_address_to_64(TEST_CONTRACT_ADDRESS_2),
         pad_address_to_64(SECURITY_TEST_CONTRACT_ADDRESS)

@@ -32,67 +32,24 @@ use crate::state::cached_state::CachedState;
 use crate::state::errors::StateError;
 use crate::state::state_api::{State, StateReader};
 use crate::test_utils::{
-    test_erc20_account_balance_key, test_erc20_faulty_account_balance_key,
-    test_erc20_sequencer_balance_key, DictStateReader, ACCOUNT_CONTRACT_PATH, BALANCE,
-    ERC20_CONTRACT_PATH, MAX_FEE, TEST_ACCOUNT_CONTRACT_ADDRESS, TEST_ACCOUNT_CONTRACT_CLASS_HASH,
-    TEST_CLASS_HASH, TEST_CONTRACT_ADDRESS, TEST_CONTRACT_PATH, TEST_EMPTY_CONTRACT_CLASS_HASH,
-    TEST_EMPTY_CONTRACT_PATH, TEST_ERC20_CONTRACT_ADDRESS, TEST_ERC20_CONTRACT_CLASS_HASH,
-    TEST_FAULTY_ACCOUNT_CONTRACT_ADDRESS, TEST_FAULTY_ACCOUNT_CONTRACT_CLASS_HASH,
-    TEST_FAULTY_ACCOUNT_CONTRACT_PATH,
+    test_erc20_account_balance_key, test_erc20_sequencer_balance_key, DictStateReader,
+    NonceManager, BALANCE, MAX_FEE, TEST_ACCOUNT_CONTRACT_ADDRESS,
+    TEST_ACCOUNT_CONTRACT_CLASS_HASH, TEST_CLASS_HASH, TEST_CONTRACT_ADDRESS,
+    TEST_EMPTY_CONTRACT_CLASS_HASH, TEST_EMPTY_CONTRACT_PATH, TEST_ERC20_CONTRACT_ADDRESS,
+    TEST_ERC20_CONTRACT_CLASS_HASH, TEST_FAULTY_ACCOUNT_CONTRACT_ADDRESS,
+    TEST_FAULTY_ACCOUNT_CONTRACT_CLASS_HASH,
 };
 use crate::transaction::account_transaction::AccountTransaction;
 use crate::transaction::constants;
 use crate::transaction::errors::TransactionExecutionError;
 use crate::transaction::objects::{ResourcesMapping, TransactionExecutionInfo};
+use crate::transaction::test_utils::{
+    create_account_tx_for_validate_test, create_state_with_falliable_validation_account,
+    create_state_with_trivial_validation_account, CALL_CONTRACT, INVALID, VALID,
+};
+use crate::transaction::transaction_execution::Transaction;
 use crate::transaction::transaction_types::TransactionType;
 use crate::transaction::transactions::{DeclareTransaction, ExecutableTransaction};
-
-// Corresponding constants to the ones in faulty_account.
-pub const VALID: u64 = 0;
-pub const INVALID: u64 = 1;
-pub const CALL_CONTRACT: u64 = 2;
-
-fn create_account_tx_test_state(
-    account_class_hash: &str,
-    account_address: &str,
-    account_path: &str,
-    erc20_account_balance_key: StorageKey,
-    initial_account_balance: u128,
-) -> CachedState<DictStateReader> {
-    let block_context = BlockContext::create_for_testing();
-
-    let test_contract_class_hash = ClassHash(stark_felt!(TEST_CLASS_HASH));
-    let test_account_class_hash = ClassHash(stark_felt!(account_class_hash));
-    let test_erc20_class_hash = ClassHash(stark_felt!(TEST_ERC20_CONTRACT_CLASS_HASH));
-    let class_hash_to_class = HashMap::from([
-        (test_account_class_hash, ContractClassV0::from_file(account_path).into()),
-        (test_contract_class_hash, ContractClassV0::from_file(TEST_CONTRACT_PATH).into()),
-        (test_erc20_class_hash, ContractClassV0::from_file(ERC20_CONTRACT_PATH).into()),
-    ]);
-    let test_contract_address = ContractAddress(patricia_key!(TEST_CONTRACT_ADDRESS));
-    // A random address that is unlikely to equal the result of the calculation of a contract
-    // address.
-    let test_account_address = ContractAddress(patricia_key!(account_address));
-    let test_erc20_address = block_context.fee_token_address;
-    let address_to_class_hash = HashMap::from([
-        (test_contract_address, test_contract_class_hash),
-        (test_account_address, test_account_class_hash),
-        (test_erc20_address, test_erc20_class_hash),
-    ]);
-    let minter_var_address = get_storage_var_address("permitted_minter", &[])
-        .expect("Failed to get permitted_minter storage address.");
-    let storage_view = HashMap::from([
-        ((test_erc20_address, erc20_account_balance_key), stark_felt!(initial_account_balance)),
-        // Give the account mint permission.
-        ((test_erc20_address, minter_var_address), *test_account_address.0.key()),
-    ]);
-    CachedState::new(DictStateReader {
-        address_to_class_hash,
-        class_hash_to_class,
-        storage_view,
-        ..Default::default()
-    })
-}
 
 fn expected_validate_call_info(
     class_hash: ClassHash,
@@ -119,6 +76,7 @@ fn expected_validate_call_info(
     }
     .filter_unused_builtins();
 
+    let initial_gas = Transaction::initial_gas();
     Some(CallInfo {
         call: CallEntryPoint {
             class_hash: Some(class_hash),
@@ -129,6 +87,7 @@ fn expected_validate_call_info(
             storage_address,
             caller_address: ContractAddress::default(),
             call_type: CallType::Call,
+            initial_gas,
         },
         // The account contract we use for testing has trivial `validate` functions.
         execution: CallExecution::default(),
@@ -150,6 +109,7 @@ fn expected_fee_transfer_call_info(
     // The most significant 128 bits of the expected amount transferred.
     let msb_expected_amount = stark_felt!(0_u8);
     let storage_address = block_context.fee_token_address;
+    let initial_gas = abi_constants::INITIAL_GAS_COST.into();
     let expected_fee_transfer_call = CallEntryPoint {
         class_hash: Some(expected_fee_token_class_hash),
         code_address: None,
@@ -163,6 +123,7 @@ fn expected_fee_transfer_call_info(
         storage_address,
         caller_address: account_address,
         call_type: CallType::Call,
+        initial_gas,
     };
     let expected_fee_sender_address = *account_address.0.key();
     let expected_fee_transfer_event = OrderedEvent {
@@ -249,28 +210,6 @@ fn invoke_tx() -> InvokeTransactionV1 {
     )
 }
 
-fn create_state_with_trivial_validation_account() -> CachedState<DictStateReader> {
-    let account_balance = BALANCE;
-    create_account_tx_test_state(
-        TEST_ACCOUNT_CONTRACT_CLASS_HASH,
-        TEST_ACCOUNT_CONTRACT_ADDRESS,
-        ACCOUNT_CONTRACT_PATH,
-        test_erc20_account_balance_key(),
-        account_balance,
-    )
-}
-
-fn create_state_with_falliable_validation_account() -> CachedState<DictStateReader> {
-    let account_balance = BALANCE;
-    create_account_tx_test_state(
-        TEST_FAULTY_ACCOUNT_CONTRACT_CLASS_HASH,
-        TEST_FAULTY_ACCOUNT_CONTRACT_ADDRESS,
-        TEST_FAULTY_ACCOUNT_CONTRACT_PATH,
-        test_erc20_faulty_account_balance_key(),
-        account_balance * 2,
-    )
-}
-
 #[test]
 fn test_invoke_tx() {
     let state = &mut create_state_with_trivial_validation_account();
@@ -298,6 +237,7 @@ fn test_invoke_tx() {
     // Build expected execute call info.
     let expected_return_result_calldata = vec![stark_felt!(2_u8)];
     let storage_address = ContractAddress(patricia_key!(TEST_CONTRACT_ADDRESS));
+    let initial_gas = abi_constants::INITIAL_GAS_COST.into();
     let expected_return_result_call = CallEntryPoint {
         entry_point_selector: selector_from_name("return_result"),
         class_hash: Some(ClassHash(stark_felt!(TEST_CLASS_HASH))),
@@ -307,6 +247,7 @@ fn test_invoke_tx() {
         storage_address,
         caller_address: expected_account_address,
         call_type: CallType::Call,
+        initial_gas,
     };
     let expected_execute_call = CallEntryPoint {
         entry_point_selector: selector_from_name(constants::EXECUTE_ENTRY_POINT_NAME),
@@ -358,8 +299,8 @@ fn test_invoke_tx() {
         actual_fee: expected_actual_fee,
         actual_resources: ResourcesMapping(HashMap::from([
             (abi_constants::GAS_USAGE.to_string(), 1224),
-            ("pedersen".to_string(), 16),
-            ("range_check".to_string(), 101),
+            (HASH_BUILTIN_NAME.to_string(), 16),
+            (RANGE_CHECK_BUILTIN_NAME.to_string(), 101),
             (abi_constants::N_STEPS_RESOURCE.to_string(), 4135),
         ])),
         revert_error: None,
@@ -451,7 +392,12 @@ fn test_max_fee_exceeds_balance() {
     // Deploy.
     let invalid_tx = AccountTransaction::DeployAccount(DeployAccountTransaction {
         max_fee: invalid_max_fee,
-        ..deploy_account_tx(TEST_ACCOUNT_CONTRACT_CLASS_HASH, None, None)
+        ..deploy_account_tx(
+            TEST_ACCOUNT_CONTRACT_CLASS_HASH,
+            None,
+            None,
+            &mut NonceManager::default(),
+        )
     });
     assert_failure_if_max_fee_exceeds_balance(state, block_context, invalid_tx);
 
@@ -580,8 +526,8 @@ fn test_declare_tx() {
         actual_fee: expected_actual_fee,
         actual_resources: ResourcesMapping(HashMap::from([
             (abi_constants::GAS_USAGE.to_string(), 1224),
-            ("pedersen".to_string(), 15),
-            ("range_check".to_string(), 63),
+            (HASH_BUILTIN_NAME.to_string(), 15),
+            (RANGE_CHECK_BUILTIN_NAME.to_string(), 63),
             (abi_constants::N_STEPS_RESOURCE.to_string(), 2715),
         ])),
         revert_error: None,
@@ -614,12 +560,14 @@ fn deploy_account_tx(
     account_class_hash: &str,
     constructor_calldata: Option<Calldata>,
     signature: Option<TransactionSignature>,
+    nonce_manager: &mut NonceManager,
 ) -> DeployAccountTransaction {
     crate::test_utils::deploy_account_tx(
         account_class_hash,
         Fee(MAX_FEE),
         constructor_calldata,
         signature,
+        nonce_manager,
     )
 }
 
@@ -627,7 +575,9 @@ fn deploy_account_tx(
 fn test_deploy_account_tx() {
     let state = &mut create_state_with_trivial_validation_account();
     let block_context = &BlockContext::create_for_account_testing();
-    let deploy_account_tx = deploy_account_tx(TEST_ACCOUNT_CONTRACT_CLASS_HASH, None, None);
+    let mut nonce_manager = NonceManager::default();
+    let deploy_account_tx =
+        deploy_account_tx(TEST_ACCOUNT_CONTRACT_CLASS_HASH, None, None, &mut nonce_manager);
 
     // Extract deploy account transaction fields for testing, as it is consumed when creating an
     // account transaction.
@@ -661,6 +611,7 @@ fn test_deploy_account_tx() {
     );
 
     // Build expected execute call info.
+    let initial_gas = Transaction::initial_gas();
     let expected_execute_call_info = Some(CallInfo {
         call: CallEntryPoint {
             class_hash: Some(expected_account_class_hash),
@@ -668,6 +619,7 @@ fn test_deploy_account_tx() {
             entry_point_type: EntryPointType::Constructor,
             entry_point_selector: selector_from_name(abi_constants::CONSTRUCTOR_ENTRY_POINT_NAME),
             storage_address: deployed_account_address,
+            initial_gas,
             ..Default::default()
         },
         ..Default::default()
@@ -697,8 +649,8 @@ fn test_deploy_account_tx() {
         actual_fee: expected_actual_fee,
         actual_resources: ResourcesMapping(HashMap::from([
             (abi_constants::GAS_USAGE.to_string(), 3060),
-            ("pedersen".to_string(), 23),
-            ("range_check".to_string(), 83),
+            (HASH_BUILTIN_NAME.to_string(), 23),
+            (RANGE_CHECK_BUILTIN_NAME.to_string(), 83),
             (abi_constants::N_STEPS_RESOURCE.to_string(), 3625),
         ])),
         revert_error: None,
@@ -728,8 +680,10 @@ fn test_deploy_account_tx() {
 
     // Negative flow.
     // Deploy to an existing address.
-    let deploy_account_tx =
-        DeployAccountTransaction { nonce: Nonce(stark_felt!(1_u8)), ..deploy_account_tx };
+    let deploy_account_tx = DeployAccountTransaction {
+        nonce: nonce_manager.next(deployed_account_address),
+        ..deploy_account_tx
+    };
     let account_tx = AccountTransaction::DeployAccount(deploy_account_tx);
     let error = account_tx.execute(state, block_context).unwrap_err();
     assert_matches!(
@@ -740,62 +694,6 @@ fn test_deploy_account_tx() {
     );
 }
 
-fn create_account_tx_for_validate_test(
-    tx_type: TransactionType,
-    scenario: u64,
-    additional_data: Option<StarkFelt>,
-) -> AccountTransaction {
-    // The first felt of the signature is used to set the scenario. If the scenario is
-    // `CALL_CONTRACT` the second felt is used to pass the contract address.
-    let signature = TransactionSignature(vec![
-        StarkFelt::from(scenario),
-        // Assumes the default value of StarkFelt is 0.
-        additional_data.unwrap_or_default(),
-    ]);
-
-    match tx_type {
-        TransactionType::Declare => {
-            let contract_class =
-                ContractClassV0::from_file(TEST_FAULTY_ACCOUNT_CONTRACT_PATH).into();
-            let declare_tx = crate::test_utils::declare_tx(
-                TEST_ACCOUNT_CONTRACT_CLASS_HASH,
-                ContractAddress(patricia_key!(TEST_FAULTY_ACCOUNT_CONTRACT_ADDRESS)),
-                Fee(0),
-                Some(signature),
-            );
-
-            AccountTransaction::Declare(DeclareTransaction {
-                tx: starknet_api::transaction::DeclareTransaction::V1(declare_tx),
-                contract_class,
-            })
-        }
-        TransactionType::DeployAccount => {
-            let deploy_account_tx = crate::test_utils::deploy_account_tx(
-                TEST_FAULTY_ACCOUNT_CONTRACT_CLASS_HASH,
-                Fee(0),
-                Some(calldata![stark_felt!(constants::FELT_FALSE)]),
-                Some(signature),
-            );
-            AccountTransaction::DeployAccount(deploy_account_tx)
-        }
-        TransactionType::InvokeFunction => {
-            let entry_point_selector = selector_from_name("foo");
-            let execute_calldata = calldata![
-                stark_felt!(TEST_FAULTY_ACCOUNT_CONTRACT_ADDRESS), // Contract address.
-                entry_point_selector.0,                            // EP selector.
-                stark_felt!(0_u8)                                  // Calldata length.
-            ];
-            let invoke_tx = crate::test_utils::invoke_tx(
-                execute_calldata,
-                ContractAddress(patricia_key!(TEST_FAULTY_ACCOUNT_CONTRACT_ADDRESS)),
-                Fee(0),
-                Some(signature),
-            );
-            AccountTransaction::Invoke(InvokeTransaction::V1(invoke_tx))
-        }
-        TransactionType::L1Handler => unimplemented!(),
-    }
-}
 #[test]
 fn test_validate_accounts_tx() {
     fn test_validate_account_tx(tx_type: TransactionType) {
@@ -805,7 +703,8 @@ fn test_validate_accounts_tx() {
 
         // Valid logic.
         let state = &mut create_state_with_falliable_validation_account();
-        let account_tx = create_account_tx_for_validate_test(tx_type, VALID, None);
+        let account_tx =
+            create_account_tx_for_validate_test(tx_type, VALID, None, &mut NonceManager::default());
         account_tx.execute(state, block_context).unwrap();
 
         if tx_type != TransactionType::DeployAccount {
@@ -815,6 +714,7 @@ fn test_validate_accounts_tx() {
                 tx_type,
                 CALL_CONTRACT,
                 Some(stark_felt!(TEST_FAULTY_ACCOUNT_CONTRACT_ADDRESS)),
+                &mut NonceManager::default(),
             );
             account_tx.execute(state, block_context).unwrap();
         }
@@ -823,7 +723,12 @@ fn test_validate_accounts_tx() {
 
         // Logic failure.
         let state = &mut create_state_with_falliable_validation_account();
-        let account_tx = create_account_tx_for_validate_test(tx_type, INVALID, None);
+        let account_tx = create_account_tx_for_validate_test(
+            tx_type,
+            INVALID,
+            None,
+            &mut NonceManager::default(),
+        );
         let error = account_tx.execute(state, block_context).unwrap_err();
         // TODO(Noa,01/05/2023): Test the exact failure reason.
         assert_matches!(error, TransactionExecutionError::ValidateTransactionError(_));
@@ -833,6 +738,7 @@ fn test_validate_accounts_tx() {
             tx_type,
             CALL_CONTRACT,
             Some(stark_felt!(TEST_CONTRACT_ADDRESS)),
+            &mut NonceManager::default(),
         );
         let error = account_tx.execute(state, block_context).unwrap_err();
         assert_matches!(error, TransactionExecutionError::UnauthorizedInnerCall{entry_point_kind} if
@@ -853,6 +759,7 @@ fn test_validate_accounts_tx() {
                     stark_felt!(CALL_CONTRACT),
                     stark_felt!(TEST_FAULTY_ACCOUNT_CONTRACT_ADDRESS),
                 ])),
+                &mut NonceManager::default(),
             );
             let account_tx = AccountTransaction::DeployAccount(deploy_account_tx);
             let error = account_tx.execute(state, block_context).unwrap_err();

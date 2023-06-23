@@ -18,8 +18,9 @@ use self::hint_processor::{
     execute_inner_call, execute_library_call, felt_to_bool, read_call_params, read_calldata,
     read_felt_array, DeprecatedSyscallExecutionError, DeprecatedSyscallHintProcessor,
 };
+use crate::abi::constants;
 use crate::execution::entry_point::{
-    CallEntryPoint, CallType, MessageToL1, OrderedEvent, OrderedL2ToL1Message,
+    CallEntryPoint, CallType, ConstructorContext, MessageToL1, OrderedEvent, OrderedL2ToL1Message,
 };
 use crate::execution::execution_utils::{
     execute_deployment, stark_felt_from_ptr, write_maybe_relocatable, write_stark_felt,
@@ -41,6 +42,7 @@ pub enum DeprecatedSyscallSelector {
     DelegateL1Handler,
     Deploy,
     EmitEvent,
+    GetBlockHash,
     GetBlockNumber,
     GetBlockTimestamp,
     GetCallerAddress,
@@ -70,6 +72,7 @@ impl TryFrom<StarkFelt> for DeprecatedSyscallSelector {
             b"DelegateL1Handler" => Ok(Self::DelegateL1Handler),
             b"Deploy" => Ok(Self::Deploy),
             b"EmitEvent" => Ok(Self::EmitEvent),
+            b"GetBlockHash" => Ok(Self::GetBlockHash),
             b"GetBlockNumber" => Ok(Self::GetBlockNumber),
             b"GetBlockTimestamp" => Ok(Self::GetBlockTimestamp),
             b"GetCallerAddress" => Ok(Self::GetCallerAddress),
@@ -161,6 +164,7 @@ pub fn call_contract(
     syscall_handler: &mut DeprecatedSyscallHintProcessor<'_>,
 ) -> DeprecatedSyscallResult<CallContractResponse> {
     let storage_address = request.contract_address;
+    let initial_gas = constants::INITIAL_GAS_COST.into();
     let entry_point = CallEntryPoint {
         class_hash: None,
         code_address: Some(storage_address),
@@ -170,6 +174,7 @@ pub fn call_contract(
         storage_address,
         caller_address: syscall_handler.storage_address,
         call_type: CallType::Call,
+        initial_gas,
     };
     let retdata_segment = execute_inner_call(entry_point, vm, syscall_handler)?;
 
@@ -285,15 +290,20 @@ pub fn deploy(
         deployer_address_for_calculation,
     )?;
 
-    let is_deploy_account_tx = false;
+    let initial_gas = constants::INITIAL_GAS_COST.into();
+    let ctor_context = ConstructorContext {
+        class_hash: request.class_hash,
+        code_address: Some(deployed_contract_address),
+        storage_address: deployed_contract_address,
+        caller_address: deployer_address,
+    };
     let call_info = execute_deployment(
         syscall_handler.state,
+        syscall_handler.resources,
         syscall_handler.context,
-        request.class_hash,
-        deployed_contract_address,
-        deployer_address,
+        ctor_context,
         request.constructor_calldata,
-        is_deploy_account_tx,
+        initial_gas,
     )?;
     syscall_handler.inner_calls.push(call_info);
 

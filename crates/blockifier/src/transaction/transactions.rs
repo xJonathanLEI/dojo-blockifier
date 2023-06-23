@@ -1,13 +1,17 @@
 use std::sync::Arc;
 
-use starknet_api::core::{CompiledClassHash, ContractAddress};
+use cairo_felt::Felt252;
+use starknet_api::core::{ContractAddress, CompiledClassHash};
 use starknet_api::deprecated_contract_class::EntryPointType;
 use starknet_api::transaction::{Calldata, DeployAccountTransaction, Fee, InvokeTransaction};
 
 use crate::abi::abi_utils::selector_from_name;
 use crate::block_context::BlockContext;
 use crate::execution::contract_class::ContractClass;
-use crate::execution::entry_point::{CallEntryPoint, CallInfo, CallType, ExecutionContext};
+use crate::execution::entry_point::{
+    CallEntryPoint, CallInfo, CallType, ConstructorContext, EntryPointExecutionContext,
+    ExecutionResources,
+};
 use crate::execution::execution_utils::execute_deployment;
 use crate::state::cached_state::{CachedState, MutRefState, TransactionalState};
 use crate::state::errors::StateError;
@@ -15,7 +19,9 @@ use crate::state::state_api::{State, StateReader};
 use crate::transaction::constants;
 use crate::transaction::errors::TransactionExecutionError;
 use crate::transaction::objects::{TransactionExecutionInfo, TransactionExecutionResult};
-use crate::transaction::transaction_utils::verify_no_calls_to_other_contracts;
+use crate::transaction::transaction_utils::{
+    update_remaining_gas, verify_no_calls_to_other_contracts,
+};
 
 #[cfg(test)]
 #[path = "transactions_test.rs"]
@@ -40,7 +46,7 @@ pub trait ExecutableTransaction<S: StateReader>: Sized {
                 Ok(value)
             }
             Err(error) => {
-                log::warn!("Transaction execution failed with: {error}");
+                log::debug!("Transaction execution failed with: {error}");
                 transactional_state.abort();
                 Err(error)
             }
@@ -60,7 +66,9 @@ pub trait Executable<S: State> {
     fn run_execute(
         &self,
         state: &mut S,
-        context: &mut ExecutionContext,
+        resources: &mut ExecutionResources,
+        context: &mut EntryPointExecutionContext,
+        remaining_gas: &mut Felt252,
     ) -> TransactionExecutionResult<Option<CallInfo>>;
 }
 
@@ -128,7 +136,9 @@ impl<S: State> Executable<S> for DeclareTransaction {
     fn run_execute(
         &self,
         state: &mut S,
-        _ctx: &mut ExecutionContext,
+        _resources: &mut ExecutionResources,
+        _context: &mut EntryPointExecutionContext,
+        _remaining_gas: &mut Felt252,
     ) -> TransactionExecutionResult<Option<CallInfo>> {
         let class_hash = self.tx.class_hash();
 
@@ -164,20 +174,27 @@ impl<S: State> Executable<S> for DeployAccountTransaction {
     fn run_execute(
         &self,
         state: &mut S,
-        context: &mut ExecutionContext,
+        resources: &mut ExecutionResources,
+        context: &mut EntryPointExecutionContext,
+        remaining_gas: &mut Felt252,
     ) -> TransactionExecutionResult<Option<CallInfo>> {
-        let is_deploy_account_tx = true;
+        let ctor_context = ConstructorContext {
+            class_hash: self.class_hash,
+            code_address: None,
+            storage_address: self.contract_address,
+            caller_address: ContractAddress::default(),
+        };
         let deployment_result = execute_deployment(
             state,
+            resources,
             context,
-            self.class_hash,
-            self.contract_address,
-            ContractAddress::default(),
+            ctor_context,
             self.constructor_calldata.clone(),
-            is_deploy_account_tx,
+            remaining_gas.clone(),
         );
         let call_info = deployment_result
             .map_err(TransactionExecutionError::ContractConstructorExecutionFailed)?;
+        update_remaining_gas(remaining_gas, &call_info);
         verify_no_calls_to_other_contracts(&call_info, String::from("an account constructor"))?;
 
         Ok(Some(call_info))
@@ -188,7 +205,9 @@ impl<S: State> Executable<S> for InvokeTransaction {
     fn run_execute(
         &self,
         state: &mut S,
-        context: &mut ExecutionContext,
+        resources: &mut ExecutionResources,
+        context: &mut EntryPointExecutionContext,
+        remaining_gas: &mut Felt252,
     ) -> TransactionExecutionResult<Option<CallInfo>> {
         let entry_point_selector = match self {
             InvokeTransaction::V0(tx) => tx.entry_point_selector,
@@ -204,12 +223,15 @@ impl<S: State> Executable<S> for InvokeTransaction {
             storage_address,
             caller_address: ContractAddress::default(),
             call_type: CallType::Call,
+            initial_gas: remaining_gas.clone(),
         };
 
-        execute_call
-            .execute(state, context)
-            .map(Some)
-            .map_err(TransactionExecutionError::ExecutionError)
+        let call_info = execute_call
+            .execute(state, resources, context)
+            .map_err(TransactionExecutionError::ExecutionError)?;
+        update_remaining_gas(remaining_gas, &call_info);
+
+        Ok(Some(call_info))
     }
 }
 
@@ -223,7 +245,9 @@ impl<S: State> Executable<S> for L1HandlerTransaction {
     fn run_execute(
         &self,
         state: &mut S,
-        context: &mut ExecutionContext,
+        resources: &mut ExecutionResources,
+        context: &mut EntryPointExecutionContext,
+        remaining_gas: &mut Felt252,
     ) -> TransactionExecutionResult<Option<CallInfo>> {
         let tx = &self.tx;
         let storage_address = tx.contract_address;
@@ -236,10 +260,11 @@ impl<S: State> Executable<S> for L1HandlerTransaction {
             storage_address,
             caller_address: ContractAddress::default(),
             call_type: CallType::Call,
+            initial_gas: remaining_gas.clone(),
         };
 
         execute_call
-            .execute(state, context)
+            .execute(state, resources, context)
             .map(Some)
             .map_err(TransactionExecutionError::ExecutionError)
     }

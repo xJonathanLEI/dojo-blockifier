@@ -12,7 +12,7 @@ use cairo_vm::serde::deserialize_program::{
 use cairo_vm::types::errors::program_errors::ProgramError;
 use cairo_vm::types::program::Program;
 use cairo_vm::types::relocatable::MaybeRelocatable;
-use cairo_vm::vm::runners::builtin_runner::HASH_BUILTIN_NAME;
+use cairo_vm::vm::runners::builtin_runner::{HASH_BUILTIN_NAME, POSEIDON_BUILTIN_NAME};
 use cairo_vm::vm::runners::cairo_runner::ExecutionResources as VmExecutionResources;
 use serde::de::Error as DeserializationError;
 use serde::{Deserialize, Deserializer};
@@ -22,8 +22,8 @@ use starknet_api::deprecated_contract_class::{
     Program as DeprecatedProgram,
 };
 
-use super::errors::PreExecutionError;
 use crate::abi::constants;
+use crate::execution::errors::PreExecutionError;
 use crate::execution::execution_utils::{felt_to_stark_felt, sn_api_to_cairo_vm_program};
 
 /// Represents a runnable StarkNet contract class (meaning, the program is runnable by the VM).
@@ -41,6 +41,13 @@ impl ContractClass {
         match self {
             ContractClass::V0(class) => class.constructor_selector(),
             ContractClass::V1(class) => class.constructor_selector(),
+        }
+    }
+
+    pub fn estimate_casm_hash_computation_resources(&self) -> VmExecutionResources {
+        match self {
+            ContractClass::V0(class) => class.estimate_casm_hash_computation_resources(),
+            ContractClass::V1(class) => class.estimate_casm_hash_computation_resources(),
         }
     }
 }
@@ -65,15 +72,15 @@ impl ContractClassV0 {
         self.entry_points_by_type.values().map(|vec| vec.len()).sum()
     }
 
-    fn n_builtins(&self) -> usize {
-        self.program.builtins.len()
+    pub fn n_builtins(&self) -> usize {
+        self.program.builtins_len()
     }
 
-    fn bytecode_length(&self) -> usize {
-        self.program.data.len()
+    pub fn bytecode_length(&self) -> usize {
+        self.program.data_len()
     }
 
-    pub fn estimate_casm_hash_computation_resources(&self) -> VmExecutionResources {
+    fn estimate_casm_hash_computation_resources(&self) -> VmExecutionResources {
         let hashed_data_size = (constants::CAIRO0_ENTRY_POINT_STRUCT_SIZE * self.n_entry_points())
             + self.n_builtins()
             + self.bytecode_length()
@@ -131,6 +138,10 @@ impl ContractClassV1 {
         Some(self.0.entry_points_by_type[&EntryPointType::Constructor].first()?.selector)
     }
 
+    pub fn bytecode_length(&self) -> usize {
+        self.program.data_len()
+    }
+
     pub fn get_entry_point(
         &self,
         call: &super::entry_point::CallEntryPoint,
@@ -148,6 +159,24 @@ impl ContractClassV1 {
                 selector: call.entry_point_selector,
                 typ: call.entry_point_type,
             }),
+        }
+    }
+
+    /// Returns the estimated VM resources required for computing Casm hash.
+    /// This is an empiric measurement of several bytecode lengths, which constitutes as the
+    /// dominant factor in it.
+    fn estimate_casm_hash_computation_resources(&self) -> VmExecutionResources {
+        let bytecode_length = self.bytecode_length() as f64;
+        let n_steps = (503.0 + bytecode_length * 5.7) as usize;
+        let n_poseidon_builtins = (10.9 + bytecode_length * 0.5) as usize;
+
+        VmExecutionResources {
+            n_steps,
+            n_memory_holes: 0,
+            builtin_instance_counter: HashMap::from([(
+                POSEIDON_BUILTIN_NAME.to_string(),
+                n_poseidon_builtins,
+            )]),
         }
     }
 
@@ -188,21 +217,22 @@ impl TryFrom<CasmContractClass> for ContractClassV1 {
             .into_iter()
             .map(|x| MaybeRelocatable::from(Felt252::from(x.value)))
             .collect();
-        let hints: HashMap<usize, Vec<HintParams>> = class
-            .hints
-            .iter()
-            .map(|(i, hints)| (*i, hints.iter().map(hint_to_hint_params).collect()))
-            .collect();
+
+        let mut hints: HashMap<usize, Vec<HintParams>> = HashMap::new();
+        for (i, hint_list) in class.hints.iter() {
+            let hint_params: Result<Vec<HintParams>, ProgramError> =
+                hint_list.iter().map(hint_to_hint_params).collect();
+            hints.insert(*i, hint_params?);
+        }
 
         // Collect a sting to hint map so that the hint processor can fetch the correct [Hint]
         // for each instruction.
-        let string_to_hint: HashMap<String, Hint> = class
-            .hints
-            .into_iter()
-            .flat_map(|(_, hints)| {
-                hints.iter().map(|hint| (hint.to_string(), hint.clone())).collect::<Vec<_>>()
-            })
-            .collect();
+        let mut string_to_hint: HashMap<String, Hint> = HashMap::new();
+        for (_, hint_list) in class.hints.iter() {
+            for hint in hint_list.iter() {
+                string_to_hint.insert(serde_json::to_string(hint)?, hint.clone());
+            }
+        }
 
         // Initialize program with all builtins.
         let builtins = vec![
@@ -222,7 +252,6 @@ impl TryFrom<CasmContractClass> for ContractClassV1 {
 
         let program = Program::new(
             builtins,
-            Felt252::prime().to_str_radix(16),
             data,
             main,
             hints,
@@ -235,15 +264,15 @@ impl TryFrom<CasmContractClass> for ContractClassV1 {
         let mut entry_points_by_type = HashMap::new();
         entry_points_by_type.insert(
             EntryPointType::Constructor,
-            convert_entrypoints_v1(class.entry_points_by_type.constructor)?,
+            convert_entry_points_v1(class.entry_points_by_type.constructor)?,
         );
         entry_points_by_type.insert(
             EntryPointType::External,
-            convert_entrypoints_v1(class.entry_points_by_type.external)?,
+            convert_entry_points_v1(class.entry_points_by_type.external)?,
         );
         entry_points_by_type.insert(
             EntryPointType::L1Handler,
-            convert_entrypoints_v1(class.entry_points_by_type.l1_handler)?,
+            convert_entry_points_v1(class.entry_points_by_type.l1_handler)?,
         );
 
         Ok(Self(Arc::new(ContractClassV1Inner {
@@ -268,18 +297,18 @@ pub fn deserialize_program<'de, D: Deserializer<'de>>(
 // V1 utilities.
 
 // TODO(spapini): Share with cairo-lang-runner.
-fn hint_to_hint_params(hint: &cairo_lang_casm::hints::Hint) -> HintParams {
-    HintParams {
-        code: hint.to_string(),
+fn hint_to_hint_params(hint: &cairo_lang_casm::hints::Hint) -> Result<HintParams, ProgramError> {
+    Ok(HintParams {
+        code: serde_json::to_string(hint)?,
         accessible_scopes: vec![],
         flow_tracking_data: FlowTrackingData {
             ap_tracking: ApTracking::new(),
             reference_ids: HashMap::new(),
         },
-    }
+    })
 }
 
-fn convert_entrypoints_v1(
+fn convert_entry_points_v1(
     external: Vec<CasmContractEntryPoint>,
 ) -> Result<Vec<EntryPointV1>, ProgramError> {
     external
@@ -290,7 +319,7 @@ fn convert_entrypoints_v1(
                     &Felt252::try_from(ep.selector).unwrap(),
                 )),
                 offset: EntryPointOffset(ep.offset),
-                builtins: ep.builtins,
+                builtins: ep.builtins.into_iter().map(|builtin| builtin + "_builtin").collect(),
             })
         })
         .collect()

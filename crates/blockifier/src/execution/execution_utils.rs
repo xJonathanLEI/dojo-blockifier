@@ -12,15 +12,15 @@ use cairo_vm::vm::errors::memory_errors::MemoryError;
 use cairo_vm::vm::errors::vm_errors::VirtualMachineError;
 use cairo_vm::vm::runners::cairo_runner::CairoArg;
 use cairo_vm::vm::vm_core::VirtualMachine;
-use starknet_api::core::{ClassHash, ContractAddress};
+use starknet_api::core::ClassHash;
 use starknet_api::deprecated_contract_class::Program as DeprecatedProgram;
 use starknet_api::hash::StarkFelt;
 use starknet_api::transaction::Calldata;
 
 use crate::execution::contract_class::ContractClass;
 use crate::execution::entry_point::{
-    execute_constructor_entry_point, CallEntryPoint, CallInfo, EntryPointExecutionResult,
-    ExecutionContext, Retdata,
+    execute_constructor_entry_point, CallEntryPoint, CallInfo, ConstructorContext,
+    EntryPointExecutionContext, EntryPointExecutionResult, ExecutionResources, Retdata,
 };
 use crate::execution::errors::PostExecutionError;
 use crate::execution::{cairo1_execution, deprecated_execution};
@@ -47,32 +47,41 @@ pub fn execute_entry_point_call(
     call: CallEntryPoint,
     contract_class: ContractClass,
     state: &mut dyn State,
-    context: &mut ExecutionContext,
+    resources: &mut ExecutionResources,
+    context: &mut EntryPointExecutionContext,
 ) -> EntryPointExecutionResult<CallInfo> {
     match contract_class {
-        ContractClass::V0(contract_class) => {
-            deprecated_execution::execute_entry_point_call(call, contract_class, state, context)
-        }
-        ContractClass::V1(contract_class) => {
-            cairo1_execution::execute_entry_point_call(call, contract_class, state, context)
-        }
+        ContractClass::V0(contract_class) => deprecated_execution::execute_entry_point_call(
+            call,
+            contract_class,
+            state,
+            resources,
+            context,
+        ),
+        ContractClass::V1(contract_class) => cairo1_execution::execute_entry_point_call(
+            call,
+            contract_class,
+            state,
+            resources,
+            context,
+        ),
     }
 }
 
 pub fn read_execution_retdata(
-    vm: VirtualMachine,
+    vm: &VirtualMachine,
     retdata_size: MaybeRelocatable,
-    retdata_ptr: MaybeRelocatable,
+    retdata_ptr: &MaybeRelocatable,
 ) -> Result<Retdata, PostExecutionError> {
     let retdata_size = match retdata_size {
         MaybeRelocatable::Int(retdata_size) => usize::try_from(retdata_size.to_bigint())
             .map_err(PostExecutionError::RetdataSizeTooBig)?,
         relocatable => {
-            return Err(VirtualMachineError::ExpectedIntAtRange(Some(relocatable)).into());
+            return Err(VirtualMachineError::ExpectedIntAtRange(Box::new(Some(relocatable))).into());
         }
     };
 
-    Ok(Retdata(felt_range_from_ptr(&vm, Relocatable::try_from(&retdata_ptr)?, retdata_size)?))
+    Ok(Retdata(felt_range_from_ptr(vm, Relocatable::try_from(retdata_ptr)?, retdata_size)?))
 }
 
 pub fn stark_felt_from_ptr(
@@ -109,16 +118,19 @@ pub fn sn_api_to_cairo_vm_program(program: DeprecatedProgram) -> Result<Program,
     let data = deserialize_array_of_bigint_hex(program.data)?;
     let hints = serde_json::from_value::<HashMap<usize, Vec<HintParams>>>(program.hints)?;
     let main = None;
-    let error_message_attributes = serde_json::from_value::<Vec<Attribute>>(program.attributes)?
-        .into_iter()
-        .filter(|attr| attr.name == "error_message")
-        .collect();
+    let error_message_attributes = match program.attributes {
+        serde_json::Value::Null => vec![],
+        attributes => serde_json::from_value::<Vec<Attribute>>(attributes)?
+            .into_iter()
+            .filter(|attr| attr.name == "error_message")
+            .collect(),
+    };
+
     let instruction_locations = None;
     let reference_manager = serde_json::from_value::<ReferenceManager>(program.reference_manager)?;
 
     let program = Program::new(
         builtins,
-        Felt252::prime().to_str_radix(16),
         data,
         main,
         hints,
@@ -183,32 +195,32 @@ impl ReadOnlySegments {
 /// Returns the call info of the deployed class' constructor execution.
 pub fn execute_deployment(
     state: &mut dyn State,
-    context: &mut ExecutionContext,
-    class_hash: ClassHash,
-    deployed_contract_address: ContractAddress,
-    deployer_address: ContractAddress,
+    resources: &mut ExecutionResources,
+    context: &mut EntryPointExecutionContext,
+    ctor_context: ConstructorContext,
     constructor_calldata: Calldata,
-    is_deploy_account_tx: bool,
+    remaining_gas: Felt252,
 ) -> EntryPointExecutionResult<CallInfo> {
     // Address allocation in the state is done before calling the constructor, so that it is
     // visible from it.
+    let deployed_contract_address = ctor_context.storage_address;
     let current_class_hash = state.get_class_hash_at(deployed_contract_address)?;
     if current_class_hash != ClassHash::default() {
         return Err(StateError::UnavailableContractAddress(deployed_contract_address).into());
     }
 
-    state.set_class_hash_at(deployed_contract_address, class_hash)?;
+    state.set_class_hash_at(deployed_contract_address, ctor_context.class_hash)?;
 
-    let code_address = if is_deploy_account_tx { None } else { Some(deployed_contract_address) };
-    execute_constructor_entry_point(
+    let call_info = execute_constructor_entry_point(
         state,
+        resources,
         context,
-        class_hash,
-        code_address,
-        deployed_contract_address,
-        deployer_address,
+        ctor_context,
         constructor_calldata,
-    )
+        remaining_gas,
+    )?;
+
+    Ok(call_info)
 }
 
 pub fn write_stark_felt(

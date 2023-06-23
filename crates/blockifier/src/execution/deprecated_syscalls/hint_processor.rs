@@ -13,6 +13,7 @@ use cairo_vm::types::relocatable::{MaybeRelocatable, Relocatable};
 use cairo_vm::vm::errors::hint_errors::HintError;
 use cairo_vm::vm::errors::memory_errors::MemoryError;
 use cairo_vm::vm::errors::vm_errors::VirtualMachineError;
+use cairo_vm::vm::runners::cairo_runner::RunResources;
 use cairo_vm::vm::vm_core::VirtualMachine;
 use starknet_api::core::{ClassHash, ContractAddress, EntryPointSelector};
 use starknet_api::deprecated_contract_class::EntryPointType;
@@ -22,6 +23,7 @@ use starknet_api::transaction::Calldata;
 use starknet_api::StarknetApiError;
 use thiserror::Error;
 
+use crate::abi::constants;
 use crate::execution::common_hints::{extended_builtin_hint_processor, HintExecutionResult};
 use crate::execution::deprecated_syscalls::{
     call_contract, delegate_call, delegate_l1_handler, deploy, emit_event, get_block_number,
@@ -32,7 +34,8 @@ use crate::execution::deprecated_syscalls::{
     SyscallResponse,
 };
 use crate::execution::entry_point::{
-    CallEntryPoint, CallInfo, CallType, ExecutionContext, OrderedEvent, OrderedL2ToL1Message,
+    CallEntryPoint, CallInfo, CallType, EntryPointExecutionContext, ExecutionResources,
+    OrderedEvent, OrderedL2ToL1Message,
 };
 use crate::execution::errors::EntryPointExecutionError;
 use crate::execution::execution_utils::{
@@ -70,7 +73,7 @@ pub enum DeprecatedSyscallExecutionError {
 // cairo-rs API.
 impl From<DeprecatedSyscallExecutionError> for HintError {
     fn from(error: DeprecatedSyscallExecutionError) -> Self {
-        HintError::CustomHint(error.to_string())
+        HintError::CustomHint(error.to_string().into())
     }
 }
 
@@ -79,7 +82,8 @@ impl From<DeprecatedSyscallExecutionError> for HintError {
 pub struct DeprecatedSyscallHintProcessor<'a> {
     // Input for execution.
     pub state: &'a mut dyn State,
-    pub context: &'a mut ExecutionContext,
+    pub resources: &'a mut ExecutionResources,
+    pub context: &'a mut EntryPointExecutionContext,
     pub storage_address: ContractAddress,
     pub caller_address: ContractAddress,
 
@@ -108,13 +112,15 @@ pub struct DeprecatedSyscallHintProcessor<'a> {
 impl<'a> DeprecatedSyscallHintProcessor<'a> {
     pub fn new(
         state: &'a mut dyn State,
-        context: &'a mut ExecutionContext,
+        resources: &'a mut ExecutionResources,
+        context: &'a mut EntryPointExecutionContext,
         initial_syscall_ptr: Relocatable,
         storage_address: ContractAddress,
         caller_address: ContractAddress,
     ) -> Self {
         DeprecatedSyscallHintProcessor {
             state,
+            resources,
             context,
             storage_address,
             caller_address,
@@ -189,7 +195,9 @@ impl<'a> DeprecatedSyscallHintProcessor<'a> {
             }
             DeprecatedSyscallSelector::StorageRead => self.execute_syscall(vm, storage_read),
             DeprecatedSyscallSelector::StorageWrite => self.execute_syscall(vm, storage_write),
-            _ => Err(HintError::UnknownHint(format!("Unsupported syscall selector {selector:?}."))),
+            _ => Err(HintError::UnknownHint(
+                format!("Unsupported syscall selector {selector:?}.").into(),
+            )),
         }
     }
 
@@ -253,7 +261,7 @@ impl<'a> DeprecatedSyscallHintProcessor<'a> {
     }
 
     fn increment_syscall_count(&mut self, selector: &DeprecatedSyscallSelector) {
-        let syscall_count = self.context.resources.syscall_counter.entry(*selector).or_default();
+        let syscall_count = self.resources.syscall_counter.entry(*selector).or_default();
         *syscall_count += 1;
     }
 
@@ -321,13 +329,23 @@ impl HintProcessor for DeprecatedSyscallHintProcessor<'_> {
         exec_scopes: &mut ExecutionScopes,
         hint_data: &Box<dyn Any>,
         constants: &HashMap<String, Felt252>,
+        run_resources: &mut RunResources,
     ) -> HintExecutionResult {
+        self.context.vm_run_resources = run_resources.clone();
         let hint = hint_data.downcast_ref::<HintProcessorData>().ok_or(HintError::WrongHintData)?;
         if hint_code::SYSCALL_HINTS.contains(hint.code.as_str()) {
             return self.execute_next_syscall(vm, &hint.ids_data, &hint.ap_tracking);
         }
 
-        self.builtin_hint_processor.execute_hint(vm, exec_scopes, hint_data, constants)
+        let result = self.builtin_hint_processor.execute_hint(
+            vm,
+            exec_scopes,
+            hint_data,
+            constants,
+            &mut self.context.vm_run_resources,
+        );
+        *run_resources = self.context.vm_run_resources.clone();
+        result
     }
 }
 
@@ -368,7 +386,8 @@ pub fn execute_inner_call(
     vm: &mut VirtualMachine,
     syscall_handler: &mut DeprecatedSyscallHintProcessor<'_>,
 ) -> DeprecatedSyscallResult<ReadOnlySegment> {
-    let call_info = call.execute(syscall_handler.state, syscall_handler.context)?;
+    let call_info =
+        call.execute(syscall_handler.state, syscall_handler.resources, syscall_handler.context)?;
     let retdata = &call_info.execution.retdata.0;
     let retdata: Vec<MaybeRelocatable> =
         retdata.iter().map(|&x| MaybeRelocatable::from(stark_felt_to_felt(x))).collect();
@@ -389,6 +408,7 @@ pub fn execute_library_call(
 ) -> DeprecatedSyscallResult<ReadOnlySegment> {
     let entry_point_type =
         if call_to_external { EntryPointType::External } else { EntryPointType::L1Handler };
+    let initial_gas = constants::INITIAL_GAS_COST.into();
     let entry_point = CallEntryPoint {
         class_hash: Some(class_hash),
         code_address,
@@ -399,6 +419,7 @@ pub fn execute_library_call(
         storage_address: syscall_handler.storage_address,
         caller_address: syscall_handler.caller_address,
         call_type: CallType::Delegate,
+        initial_gas,
     };
 
     execute_inner_call(entry_point, vm, syscall_handler)

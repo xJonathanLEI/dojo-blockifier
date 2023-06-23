@@ -9,7 +9,7 @@ use starknet_api::deprecated_contract_class::EntryPointType;
 use starknet_api::hash::StarkFelt;
 use thiserror::Error;
 
-use super::execution_utils::felts_as_str;
+use crate::execution::execution_utils::felts_as_str;
 use crate::state::errors::StateError;
 
 // TODO(AlonH, 21/12/2022): Implement Display for all types that appear in errors.
@@ -20,6 +20,8 @@ pub enum PreExecutionError {
     EntryPointNotFound(EntryPointSelector),
     #[error("Entry point {selector:?} of type {typ:?} is not unique.")]
     DuplicatedEntryPointSelector { selector: EntryPointSelector, typ: EntryPointType },
+    #[error("Fraud attempt blocked.")]
+    FraudAttempt(),
     #[error("Invalid builtin {0:?}.")]
     InvalidBuiltin(String),
     #[error("No entry points of type {0:?} found in contract.")]
@@ -56,8 +58,8 @@ pub enum PostExecutionError {
     SecurityValidationError(String),
     #[error(transparent)]
     VirtualMachineError(#[from] VirtualMachineError),
-    #[error("Malformed return data.")]
-    MalformedReturnData,
+    #[error("Malformed return data : {error_message}.")]
+    MalformedReturnData { error_message: String },
 }
 
 impl From<RunnerError> for PostExecutionError {
@@ -126,6 +128,8 @@ pub enum EntryPointExecutionError {
     PostExecutionError(#[from] PostExecutionError),
     #[error(transparent)]
     PreExecutionError(#[from] PreExecutionError),
+    #[error("Execution failed due to recursion depth exceeded.")]
+    RecursionDepthExceeded,
     #[error(transparent)]
     StateError(#[from] StateError),
     /// Gathers all errors from running the Cairo VM, excluding hints.
