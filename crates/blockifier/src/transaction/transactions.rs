@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use starknet_api::core::{ClassHash, ContractAddress, Nonce};
+use starknet_api::core::{ClassHash, CompiledClassHash, ContractAddress, Nonce};
 use starknet_api::deprecated_contract_class::EntryPointType;
 use starknet_api::transaction::{
     Calldata, ContractAddressSalt, Fee, InvokeTransaction, TransactionHash, TransactionSignature,
@@ -163,6 +163,7 @@ impl<S: State> Executable<S> for DeclareTransaction {
             starknet_api::transaction::DeclareTransaction::V0(_)
             | starknet_api::transaction::DeclareTransaction::V1(_) => {
                 state.set_contract_class(&class_hash, self.contract_class.clone())?;
+                state.set_compiled_class_hash(class_hash, CompiledClassHash(class_hash.0))?;
                 Ok(None)
             }
             starknet_api::transaction::DeclareTransaction::V2(tx) => {
