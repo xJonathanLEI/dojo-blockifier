@@ -3,14 +3,14 @@
 #   https://doc.rust-lang.org/cargo/reference/resolver.html#feature-resolver-version-2
 resolver = "2"
 
-members = ["crates/blockifier", "crates/native_blockifier"]
+members = [ "crates/blockifier", "crates/native_blockifier" ]
 
 [workspace.package]
-version = "0.4.0-rc9.2"
 edition = "2021"
-repository = "https://github.com/starkware-libs/blockifier/"
 license = "Apache-2.0"
 license-file = "LICENSE"
+repository = "https://github.com/starkware-libs/blockifier/"
+version = "0.4.0-rc9.2"
 
 [workspace.dependencies]
 ark-ec = "0.4.2"
@@ -34,16 +34,20 @@ log = "0.4"
 num-bigint = "0.4"
 num-integer = "0.1.45"
 num-traits = "0.2"
-rstest = "0.17.0"
-phf = { version = "0.11", features = ["macros"] }
+phf = { version = "0.11", features = [ "macros" ] }
 pretty_assertions = "1.2.1"
+rstest = "0.17.0"
 serde = "1.0.184"
 serde_json = "1.0.81"
 sha3 = "0.10.6"
-starknet_api = "0.6.0-rc3"
 starknet-crypto = "0.5.1"
+starknet_api = "0.6.0-rc3"
 strum = "0.24.1"
 strum_macros = "0.24.3"
-test-case = "2.2.2"
 tempfile = "3.7.0"
+test-case = "2.2.2"
 thiserror = "1.0.37"
+
+[patch.crates-io]
+cairo-felt = { git = "https://github.com/dojoengine/cairo-rs.git", rev = "262b7eb4b11ab165a2a936a5f914e78aa732d4a2" }
+cairo-vm = { git = "https://github.com/dojoengine/cairo-rs.git", rev = "262b7eb4b11ab165a2a936a5f914e78aa732d4a2" }
