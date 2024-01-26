@@ -6,7 +6,6 @@ use cairo_felt::Felt252;
 use cairo_lang_casm;
 use cairo_lang_casm::hints::Hint;
 use cairo_lang_starknet::casm_contract_class::{CasmContractClass, CasmContractEntryPoint};
-use cairo_lang_starknet::NestedIntList;
 use cairo_vm::serde::deserialize_program::{
     ApTracking, FlowTrackingData, HintParams, ReferenceManager,
 };
@@ -49,7 +48,10 @@ impl ContractClass {
     pub fn estimate_casm_hash_computation_resources(&self) -> VmExecutionResources {
         match self {
             ContractClass::V0(class) => class.estimate_casm_hash_computation_resources(),
-            ContractClass::V1(class) => class.estimate_casm_hash_computation_resources(),
+            ContractClass::V1(_class) => {
+                let bytecode_len: usize = 1;
+                poseidon_hash_many_cost(bytecode_len)
+            },
         }
     }
 }
@@ -170,13 +172,6 @@ impl ContractClassV1 {
         }
     }
 
-    /// Returns the estimated VM resources required for computing Casm hash.
-    /// This is an empiric measurement of several bytecode lengths, which constitutes as the
-    /// dominant factor in it.
-    fn estimate_casm_hash_computation_resources(&self) -> VmExecutionResources {
-        estimate_casm_hash_computation_resources(&self.bytecode_segment_lengths)
-    }
-
     pub fn try_from_json_string(raw_contract_class: &str) -> Result<ContractClassV1, ProgramError> {
         let casm_contract_class: CasmContractClass = serde_json::from_str(raw_contract_class)?;
         let contract_class: ContractClassV1 = casm_contract_class.try_into()?;
@@ -191,52 +186,7 @@ impl ContractClassV1 {
             program: Default::default(),
             entry_points_by_type: Default::default(),
             hints: Default::default(),
-            bytecode_segment_lengths: NestedIntList::Leaf(0),
         }))
-    }
-}
-
-/// Returns the estimated VM resources required for computing Casm hash (for Cairo 1 contracts).
-///
-/// Note: the function focuses on the bytecode size, and currently ignores the cost handling the
-/// class entry points.
-pub fn estimate_casm_hash_computation_resources(
-    bytecode_segment_lengths: &NestedIntList,
-) -> VmExecutionResources {
-    // The constants in this function were computed by running the Casm code on a few values
-    // of `bytecode_segment_lengths`.
-    match bytecode_segment_lengths {
-        NestedIntList::Leaf(length) => {
-            // The entire contract is a single segment (old Sierra contracts).
-            &VmExecutionResources {
-                n_steps: 474,
-                n_memory_holes: 0,
-                builtin_instance_counter: HashMap::from([(POSEIDON_BUILTIN_NAME.to_string(), 10)]),
-            } + &poseidon_hash_many_cost(*length)
-        }
-        NestedIntList::Node(segments) => {
-            // The contract code is segmented by its functions.
-            let mut execution_resources = VmExecutionResources {
-                n_steps: 491,
-                n_memory_holes: 0,
-                builtin_instance_counter: HashMap::from([(POSEIDON_BUILTIN_NAME.to_string(), 11)]),
-            };
-            let base_segment_cost = VmExecutionResources {
-                n_steps: 24,
-                n_memory_holes: 1,
-                builtin_instance_counter: HashMap::from([(POSEIDON_BUILTIN_NAME.to_string(), 1)]),
-            };
-            for segment in segments {
-                let NestedIntList::Leaf(length) = segment else {
-                    panic!(
-                        "Estimating hash cost is only supported for segmentation depth at most 1."
-                    );
-                };
-                execution_resources += &poseidon_hash_many_cost(*length);
-                execution_resources += &base_segment_cost;
-            }
-            execution_resources
-        }
     }
 }
 
@@ -260,7 +210,6 @@ pub struct ContractClassV1Inner {
     pub program: Program,
     pub entry_points_by_type: HashMap<EntryPointType, Vec<EntryPointV1>>,
     pub hints: HashMap<String, Hint>,
-    bytecode_segment_lengths: NestedIntList,
 }
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
@@ -334,15 +283,10 @@ impl TryFrom<CasmContractClass> for ContractClassV1 {
             convert_entry_points_v1(class.entry_points_by_type.l1_handler)?,
         );
 
-        let bytecode_segment_lengths = class
-            .bytecode_segment_lengths
-            .unwrap_or_else(|| NestedIntList::Leaf(program.data_len()));
-
         Ok(Self(Arc::new(ContractClassV1Inner {
             program,
             entry_points_by_type,
             hints: string_to_hint,
-            bytecode_segment_lengths,
         })))
     }
 }
