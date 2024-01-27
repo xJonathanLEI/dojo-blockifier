@@ -2085,7 +2085,6 @@ dependencies = [
 [[package]]
 name = "papyrus_config"
 version = "0.3.0-dev.1"
-source = "git+https://github.com/glihm/papyrus?branch=wip-250#865433c5bc7c68a356b6d1a42544fc359dc40964"
 dependencies = [
  "clap",
  "itertools 0.10.5",
@@ -2099,7 +2098,6 @@ dependencies = [
 [[package]]
 name = "papyrus_proc_macros"
 version = "0.3.0-dev.1"
-source = "git+https://github.com/glihm/papyrus?branch=wip-250#865433c5bc7c68a356b6d1a42544fc359dc40964"
 dependencies = [
  "quote",
  "syn 2.0.48",
@@ -2108,7 +2106,6 @@ dependencies = [
 [[package]]
 name = "papyrus_storage"
 version = "0.3.0-dev.1"
-source = "git+https://github.com/glihm/papyrus?branch=wip-250#865433c5bc7c68a356b6d1a42544fc359dc40964"
 dependencies = [
  "byteorder",
  "cairo-lang-casm",
