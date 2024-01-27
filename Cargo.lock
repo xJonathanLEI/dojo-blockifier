@@ -470,7 +470,7 @@ checksum = "ade8366b8bd5ba243f0a58f036cc0ca8a2f069cff1a2351ef1cac6b083e16fc0"
 [[package]]
 name = "cairo-felt"
 version = "0.9.1"
-source = "git+https://github.com/glihm/cairo-vm?branch=dojo-saya-v091#75e721d43f051aa99c1f4ee5f2855088ab450d33"
+source = "git+https://github.com/glihm/cairo-vm?branch=dojo-saya-v092#0d574e088e81924a14e8b2e728c6814fb5decb1c"
 dependencies = [
  "lazy_static",
  "num-bigint",
@@ -912,8 +912,8 @@ dependencies = [
 
 [[package]]
 name = "cairo-vm"
-version = "0.9.1"
-source = "git+https://github.com/glihm/cairo-vm?branch=dojo-saya-v091#75e721d43f051aa99c1f4ee5f2855088ab450d33"
+version = "0.9.2"
+source = "git+https://github.com/glihm/cairo-vm?branch=dojo-saya-v092#0d574e088e81924a14e8b2e728c6814fb5decb1c"
 dependencies = [
  "anyhow",
  "bincode",
@@ -936,6 +936,7 @@ dependencies = [
  "sha2",
  "sha3",
  "starknet-crypto 0.6.1",
+ "starknet-curve 0.4.0",
  "thiserror-no-std",
 ]
 
@@ -2084,6 +2085,7 @@ dependencies = [
 [[package]]
 name = "papyrus_config"
 version = "0.3.0-dev.1"
+source = "git+https://github.com/glihm/papyrus?branch=wip-250#865433c5bc7c68a356b6d1a42544fc359dc40964"
 dependencies = [
  "clap",
  "itertools 0.10.5",
@@ -2097,6 +2099,7 @@ dependencies = [
 [[package]]
 name = "papyrus_proc_macros"
 version = "0.3.0-dev.1"
+source = "git+https://github.com/glihm/papyrus?branch=wip-250#865433c5bc7c68a356b6d1a42544fc359dc40964"
 dependencies = [
  "quote",
  "syn 2.0.48",
@@ -2105,6 +2108,7 @@ dependencies = [
 [[package]]
 name = "papyrus_storage"
 version = "0.3.0-dev.1"
+source = "git+https://github.com/glihm/papyrus?branch=wip-250#865433c5bc7c68a356b6d1a42544fc359dc40964"
 dependencies = [
  "byteorder",
  "cairo-lang-casm",
