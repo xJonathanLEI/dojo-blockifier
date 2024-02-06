@@ -8,9 +8,9 @@ members = ["crates/blockifier"]
 [workspace.package]
 version = "0.5.0-dev.0"
 edition = "2021"
-repository = "https://github.com/starkware-libs/blockifier/"
 license = "Apache-2.0"
 license-file = "LICENSE"
+repository = "https://github.com/starkware-libs/blockifier/"
 
 [workspace.dependencies]
 ark-ec = "0.4.2"
@@ -36,8 +36,6 @@ num-bigint = "0.4"
 num-integer = "0.1.45"
 num-traits = "0.2"
 rstest = "0.17.0"
-papyrus_storage = { path = "/mnt/g/sn/papyrus/crates/papyrus_storage" }
-#papyrus_storage = { git = "https://github.com/glihm/papyrus", branch = "wip-250" }
 phf = { version = "0.11", features = ["macros"] }
 pretty_assertions = "1.2.1"
 pyo3 = "0.19.1"
@@ -49,8 +47,8 @@ starknet_api = "0.7.0-dev.0"
 starknet-crypto = "0.5.1"
 strum = "0.24.1"
 strum_macros = "0.24.3"
-test-case = "2.2.2"
 tempfile = "3.7.0"
+test-case = "2.2.2"
 thiserror = "1.0.37"
 
 [workspace.lints.rust]
@@ -63,3 +61,8 @@ unused = "deny"
 [patch.crates-io]
 cairo-felt = { git = "https://github.com/glihm/cairo-vm", branch = "dojo-saya-v092" }
 cairo-vm = { git = "https://github.com/glihm/cairo-vm", branch = "dojo-saya-v092" }
+# =======
+# [patch.crates-io]
+# cairo-felt = { git = "https://github.com/dojoengine/cairo-rs.git", rev = "262b7eb4b11ab165a2a936a5f914e78aa732d4a2" }
+# cairo-vm = { git = "https://github.com/dojoengine/cairo-rs.git", rev = "262b7eb4b11ab165a2a936a5f914e78aa732d4a2" }
+# >>>>>>> dojo/cairo-2.4
