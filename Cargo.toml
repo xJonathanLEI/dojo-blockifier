@@ -59,10 +59,5 @@ rust-2018-idioms = "deny"
 unused = "deny"
 
 [patch.crates-io]
-cairo-felt = { git = "https://github.com/glihm/cairo-vm", branch = "dojo-saya-v092" }
-cairo-vm = { git = "https://github.com/glihm/cairo-vm", branch = "dojo-saya-v092" }
-# =======
-# [patch.crates-io]
-# cairo-felt = { git = "https://github.com/dojoengine/cairo-rs.git", rev = "262b7eb4b11ab165a2a936a5f914e78aa732d4a2" }
-# cairo-vm = { git = "https://github.com/dojoengine/cairo-rs.git", rev = "262b7eb4b11ab165a2a936a5f914e78aa732d4a2" }
-# >>>>>>> dojo/cairo-2.4
+cairo-felt = { git = "https://github.com/dojoengine/cairo-rs.git", rev = "0d574e088e81924a14e8b2e728c6814fb5decb1c" }
+cairo-vm = { git = "https://github.com/dojoengine/cairo-rs.git", rev = "0d574e088e81924a14e8b2e728c6814fb5decb1c" }
