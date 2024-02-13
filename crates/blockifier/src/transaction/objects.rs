@@ -10,6 +10,7 @@ use starknet_api::transaction::{
     Tip, TransactionHash, TransactionSignature, TransactionVersion,
 };
 use strum_macros::EnumIter;
+use serde::{Deserialize, Serialize};
 
 use crate::block_context::BlockContext;
 use crate::execution::call_info::CallInfo;
@@ -146,7 +147,7 @@ pub struct CommonAccountFields {
 }
 
 /// Contains the information gathered by the execution of a transaction.
-#[derive(Debug, Default, Eq, PartialEq, Clone)]
+#[derive(Debug, Default, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct TransactionExecutionInfo {
     /// Transaction validation call info; [None] for `L1Handler`.
     pub validate_call_info: Option<CallInfo>,
@@ -193,7 +194,7 @@ impl TransactionExecutionInfo {
 }
 
 /// A mapping from a transaction execution resource to its actual usage.
-#[derive(Debug, Default, Eq, PartialEq, Clone)]
+#[derive(Debug, Default, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ResourcesMapping(pub HashMap<String, usize>);
 
 impl ResourcesMapping {
