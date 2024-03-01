@@ -1,3 +1,4 @@
+use cairo_vm::vm::runners::cairo_runner::RunResources;
 use itertools::concat;
 use starknet_api::calldata;
 use starknet_api::core::{ContractAddress, EntryPointSelector};
@@ -330,6 +331,9 @@ impl AccountTransaction {
 
         let mut context =
             EntryPointExecutionContext::new_invoke(block_context, &account_tx_context, true)?;
+        // TODO: set a reasonable upper limit and include it in the fee calculation
+        // set the run resources to max to avoid running out of gas when transferring fees
+        context.vm_run_resources = RunResources::new(usize::MAX);
 
         Ok(fee_transfer_call
             .execute(state, &mut ExecutionResources::default(), &mut context)
