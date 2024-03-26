@@ -5,7 +5,7 @@ use std::sync::Arc;
 use cairo_felt::Felt252;
 use cairo_lang_casm;
 use cairo_lang_casm::hints::Hint;
-use cairo_lang_starknet::casm_contract_class::{CasmContractClass, CasmContractEntryPoint};
+use cairo_lang_starknet_classes::casm_contract_class::{CasmContractClass, CasmContractEntryPoint};
 use cairo_vm::serde::deserialize_program::{
     ApTracking, FlowTrackingData, HintParams, ReferenceManager,
 };
@@ -51,7 +51,7 @@ impl ContractClass {
             ContractClass::V1(_class) => {
                 let bytecode_len: usize = 1;
                 poseidon_hash_many_cost(bytecode_len)
-            },
+            }
         }
     }
 }

@@ -5,11 +5,11 @@ use std::sync::Arc;
 use cairo_vm::vm::runners::cairo_runner::{
     ExecutionResources as VmExecutionResources, ResourceTracker, RunResources,
 };
+use serde::{Deserialize, Serialize};
 use starknet_api::core::{ClassHash, ContractAddress, EntryPointSelector};
 use starknet_api::deprecated_contract_class::EntryPointType;
 use starknet_api::hash::StarkFelt;
 use starknet_api::transaction::{Calldata, TransactionVersion};
-use serde::{Deserialize, Serialize};
 
 use crate::abi::abi_utils::selector_from_name;
 use crate::abi::constants;

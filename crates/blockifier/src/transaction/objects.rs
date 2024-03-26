@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use cairo_felt::Felt252;
 use itertools::concat;
 use num_traits::Pow;
+use serde::{Deserialize, Serialize};
 use starknet_api::core::{ClassHash, ContractAddress, Nonce};
 use starknet_api::data_availability::DataAvailabilityMode;
 use starknet_api::transaction::{
@@ -10,7 +11,6 @@ use starknet_api::transaction::{
     Tip, TransactionHash, TransactionSignature, TransactionVersion,
 };
 use strum_macros::EnumIter;
-use serde::{Deserialize, Serialize};
 
 use crate::block_context::BlockContext;
 use crate::execution::call_info::CallInfo;

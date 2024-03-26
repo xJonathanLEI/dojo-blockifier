@@ -1,12 +1,11 @@
-use std::collections::HashSet;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cairo_vm::vm::runners::cairo_runner::ExecutionResources;
+use serde::{Deserialize, Serialize};
 use starknet_api::core::{ClassHash, EthAddress};
 use starknet_api::hash::StarkFelt;
 use starknet_api::state::StorageKey;
 use starknet_api::transaction::{EventContent, L2ToL1Payload};
-use serde::{Deserialize, Serialize};
 
 use crate::execution::entry_point::CallEntryPoint;
 use crate::state::cached_state::StorageEntry;
